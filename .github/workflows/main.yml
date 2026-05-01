@@ -35,11 +35,22 @@ jobs:
           echo "jar_path=$JAR_PATH" >> $GITHUB_OUTPUT
           echo "jar_name=$(basename $JAR_PATH)" >> $GITHUB_OUTPUT
 
+      - name: Rename JAR for release
+        run: |
+          mkdir -p release
+          cp ${{ steps.find_jar.outputs.jar_path }} release/${{ steps.find_jar.outputs.jar_name }}
+
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: xmdoublejump-jar
           path: ${{ steps.find_jar.outputs.jar_path }}
+
+      - name: Upload release JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: xmdoublejump-release
+          path: release/${{ steps.find_jar.outputs.jar_name }}
 
   release:
     runs-on: ubuntu-latest
@@ -49,28 +60,28 @@ jobs:
       contents: write
 
     steps:
-      - name: Download built artifact
+      - name: Download release artifact
         uses: actions/download-artifact@v4
         with:
-          name: xmdoublejump-jar
-          path: ./artifact
+          name: xmdoublejump-release
+          path: ./release
 
-      - name: List downloaded files
-        run: ls -la ./artifact/
-
-      - name: Find JAR in artifact
-        id: find_artifact_jar
+      - name: Find JAR in release folder
+        id: find_release_jar
         run: |
-          JAR_PATH=$(find ./artifact -name "*.jar" -type f | head -n 1)
+          JAR_PATH=$(find ./release -name "*.jar" -type f | head -n 1)
           echo "jar_path=$JAR_PATH" >> $GITHUB_OUTPUT
           echo "jar_name=$(basename $JAR_PATH)" >> $GITHUB_OUTPUT
 
+      - name: Rename for public release
+        run: |
+          cp ${{ steps.find_release_jar.outputs.jar_path }} ./XMDoubleJump-${{ github.ref_name }}.jar
+
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          files: ${{ steps.find_artifact_jar.outputs.jar_path }}
+          files: ./XMDoubleJump-${{ github.ref_name }}.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
