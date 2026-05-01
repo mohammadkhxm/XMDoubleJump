@@ -1,0 +1,24 @@
+name: XMDoubleJump
+version: 1.0.0
+main: XMDoubleJump
+author: MohammadXM
+api-version: "1.21"
+description: Double jump ability for Paper servers.
+commands:
+  xmdoublejump:
+    description: Toggle double jump or reload config.
+    aliases: [xdj]
+    usage: /xmdoublejump [toggle [player] | reload]
+permissions:
+  xmdoublejump.use:
+    description: Allows double jump ability.
+    default: true
+  xmdoublejump.toggle.self:
+    description: Toggle own double jump.
+    default: op
+  xmdoublejump.toggle.others:
+    description: Toggle others double jump.
+    default: op
+  xmdoublejump.reload:
+    description: Reload plugin configuration.
+    default: op
