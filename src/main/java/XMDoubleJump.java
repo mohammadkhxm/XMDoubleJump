@@ -7,6 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.player.*;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.io.*;
@@ -27,6 +28,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
     private Sound soundType;
     private float soundVolume, soundPitch;
     private Set<UUID> disabledPlayers;
+    private Set<UUID> hasDoubleJumped;
 
     @Override
     public void onEnable() {
@@ -34,7 +36,9 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         reloadConfiguration();
         loadMessages();
         disabledPlayers = new HashSet<>();
+        hasDoubleJumped = new HashSet<>();
         getServer().getPluginManager().registerEvents(this, this);
+        startFlightManager();
     }
 
     private void loadMessages() {
@@ -89,19 +93,64 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         return LegacyComponentSerializer.legacyAmpersand().deserialize(msg);
     }
 
+    private boolean canPlayerDoubleJump(Player player) {
+        if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) return false;
+        if (!player.hasPermission("xmdoublejump.use")) return false;
+        UUID uuid = player.getUniqueId();
+        boolean isDisabled = disabledPlayers.contains(uuid);
+        if (enabledByDefault) return !isDisabled;
+        else return isDisabled;
+    }
+
+    private void startFlightManager() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (!canPlayerDoubleJump(player)) {
+                        player.setAllowFlight(false);
+                        continue;
+                    }
+                    if (player.isOnGround()) {
+                        if (hasDoubleJumped.contains(player.getUniqueId())) {
+                            hasDoubleJumped.remove(player.getUniqueId());
+                        }
+                        player.setAllowFlight(true);
+                    } else {
+                        if (hasDoubleJumped.contains(player.getUniqueId())) {
+                            player.setAllowFlight(false);
+                        } else {
+                            player.setAllowFlight(true);
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(this, 0L, 5L);
+    }
+
     @EventHandler
     public void onPlayerToggleFlight(PlayerToggleFlightEvent event) {
         Player player = event.getPlayer();
-        if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) return;
-        if (!player.hasPermission("xmdoublejump.use")) return;
+        if (!canPlayerDoubleJump(player)) {
+            player.setAllowFlight(false);
+            return;
+        }
 
-        UUID uuid = player.getUniqueId();
-        boolean isDisabled = disabledPlayers.contains(uuid);
+        if (player.isOnGround()) {
+            player.setAllowFlight(true);
+            return;
+        }
 
-        if (enabledByDefault && isDisabled) return;
-        if (!enabledByDefault && !isDisabled) return;
+        if (hasDoubleJumped.contains(player.getUniqueId())) {
+            event.setCancelled(true);
+            player.setAllowFlight(false);
+            return;
+        }
 
         event.setCancelled(true);
+        hasDoubleJumped.add(player.getUniqueId());
+        player.setAllowFlight(false);
+
         player.setVelocity(new Vector(0, jumpPower, 0));
         player.setFallDistance(0f);
 
@@ -113,6 +162,14 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         }
         if (soundsEnabled) {
             world.playSound(loc, soundType, soundVolume, soundPitch);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (canPlayerDoubleJump(player)) {
+            player.setAllowFlight(true);
         }
     }
 
