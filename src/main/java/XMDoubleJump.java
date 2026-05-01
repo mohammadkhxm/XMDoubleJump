@@ -1,4 +1,3 @@
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
@@ -98,24 +97,22 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
         UUID uuid = player.getUniqueId();
         boolean isDisabled = disabledPlayers.contains(uuid);
-        boolean canDoubleJump = enabledByDefault ? !isDisabled : isDisabled;
 
-        if (!canDoubleJump) return;
+        if (enabledByDefault && isDisabled) return;
+        if (!enabledByDefault && !isDisabled) return;
 
-        if (event.isFlying()) {
-            event.setCancelled(true);
-            player.setVelocity(new Vector(0, jumpPower, 0));
-            player.setFallDistance(0f);
+        event.setCancelled(true);
+        player.setVelocity(new Vector(0, jumpPower, 0));
+        player.setFallDistance(0f);
 
-            Location loc = player.getLocation();
-            World world = player.getWorld();
-            if (particlesEnabled) {
-                world.spawnParticle(particleType, loc, particleCount,
-                        particleOffsetX, particleOffsetY, particleOffsetZ, particleSpeed);
-            }
-            if (soundsEnabled) {
-                world.playSound(loc, soundType, soundVolume, soundPitch);
-            }
+        Location loc = player.getLocation();
+        World world = player.getWorld();
+        if (particlesEnabled) {
+            world.spawnParticle(particleType, loc, particleCount,
+                    particleOffsetX, particleOffsetY, particleOffsetZ, particleSpeed);
+        }
+        if (soundsEnabled) {
+            world.playSound(loc, soundType, soundVolume, soundPitch);
         }
     }
 
