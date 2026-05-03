@@ -1,3 +1,5 @@
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.command.*;
 import org.bukkit.configuration.file.*;
@@ -34,7 +36,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         disabledPlayers = new HashSet<>();
         getServer().getPluginManager().registerEvents(this, this);
 
-        // هنگام فعال‌شدن پلاگین، allowFlight را برای بازیکن‌های آنلاینی که مجازند فعال کن
+        // فعال‌سازی flight برای بازیکنان آنلاین دارای permission
         for (Player player : Bukkit.getOnlinePlayers()) {
             updateFlight(player);
         }
@@ -52,7 +54,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         reloadConfig();
         YamlConfiguration config = (YamlConfiguration) getConfig();
         enabledByDefault = config.getBoolean("settings.enabled-by-default", true);
-        jumpPower = config.getDouble("settings.jump-power", 0.6);   // پیشنهاد: 1.0 تا 1.2 بذارید
+        jumpPower = config.getDouble("settings.jump-power", 0.6);  // پیشنهاد: 1.0 یا 1.2
 
         particlesEnabled = config.getBoolean("particles.enabled", true);
         particleType = Particle.valueOf(config.getString("particles.type", "CLOUD").toUpperCase());
@@ -92,7 +94,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         return LegacyComponentSerializer.legacyAmpersand().deserialize(msg);
     }
 
-    // ========= رویدادهای جدید برای فعال نگه‌داشتن flight =========
+    // ========= رویدادهای مدیریت flight =========
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -101,18 +103,12 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
-        // وقتی گیم‌مود عوض می‌شود دوباره وضعیت flight را بررسی کن
+        // یک tick صبر کن تا گیم‌مود واقعاً تغییر کند
         Bukkit.getScheduler().runTask(this, () -> updateFlight(event.getPlayer()));
     }
 
-    /**
-     * بر اساس وضعیت دابل‌جامپ بازیکن، allowFlight را تنظیم کن:
-     * اگر دابل‌جامپ برایش مجاز است = true
-     * در غیر این‌صورت = false (و در صورت flying بودن، پرواز را قطع کن)
-     */
     private void updateFlight(Player player) {
         if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) {
-            // کریتیو/اسپکتاتور نیازی ندارند
             return;
         }
 
@@ -124,7 +120,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
             player.setAllowFlight(true);
         } else {
             player.setAllowFlight(false);
-            // اگه در حال حاضر پرواز کرده بود (احتمالاً از جاهای دیگه) قطع کن
             if (player.isFlying()) {
                 player.setFlying(false);
             }
@@ -145,15 +140,12 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
         if (!canDoubleJump) return;
 
-        // فقط در صورتی که event به معنی "شروع پرواز" باشد (فقط در حالت flying = false)
-        if (!event.isFlying()) return; // ممکنه جایی دیگه فراخوانی بشه، مطمئن شویم که فقط موقع فشردن دکمه پرواز بیاد
-        // نکته: event.isFlying() وقتی true است که بازیکن خواسته پرواز را شروع کند
-        // اما حواست باشه وقتی ما cancel می‌کنیم و دوباره setAllowFlight(true) می‌کنیم، دفعه بعد هم true خواهد بود.
+        // فقط زمانی که دکمه پرواز فشرده شده باشد (isFlying در اینجا true می‌شود)
+        if (!event.isFlying()) return;
 
         event.setCancelled(true);
         player.setAllowFlight(true);   // برای دابل‌جامپ بعدی
 
-        // اعمال velocity
         player.setVelocity(new Vector(0, jumpPower, 0));
         player.setFallDistance(0f);
 
@@ -245,7 +237,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
                         Collections.singletonMap("player", sender.getName())));
             }
         }
-        // بلافاصله وضعیت flight را به‌روز کن
         updateFlight(target);
     }
 
