@@ -1,5 +1,3 @@
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.command.*;
 import org.bukkit.configuration.file.*;
@@ -7,7 +5,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.player.*;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.io.*;
@@ -28,7 +25,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
     private Sound soundType;
     private float soundVolume, soundPitch;
     private Set<UUID> disabledPlayers;
-    private Set<UUID> hasDoubleJumped;
 
     @Override
     public void onEnable() {
@@ -36,9 +32,12 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         reloadConfiguration();
         loadMessages();
         disabledPlayers = new HashSet<>();
-        hasDoubleJumped = new HashSet<>();
         getServer().getPluginManager().registerEvents(this, this);
-        startFlightManager();
+
+        // هنگام فعال‌شدن پلاگین، allowFlight را برای بازیکن‌های آنلاینی که مجازند فعال کن
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            updateFlight(player);
+        }
     }
 
     private void loadMessages() {
@@ -53,7 +52,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         reloadConfig();
         YamlConfiguration config = (YamlConfiguration) getConfig();
         enabledByDefault = config.getBoolean("settings.enabled-by-default", true);
-        jumpPower = config.getDouble("settings.jump-power", 0.6);
+        jumpPower = config.getDouble("settings.jump-power", 0.6);   // پیشنهاد: 1.0 تا 1.2 بذارید
 
         particlesEnabled = config.getBoolean("particles.enabled", true);
         particleType = Particle.valueOf(config.getString("particles.type", "CLOUD").toUpperCase());
@@ -93,64 +92,68 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         return LegacyComponentSerializer.legacyAmpersand().deserialize(msg);
     }
 
-    private boolean canPlayerDoubleJump(Player player) {
-        if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) return false;
-        if (!player.hasPermission("xmdoublejump.use")) return false;
-        UUID uuid = player.getUniqueId();
-        boolean isDisabled = disabledPlayers.contains(uuid);
-        if (enabledByDefault) return !isDisabled;
-        else return isDisabled;
+    // ========= رویدادهای جدید برای فعال نگه‌داشتن flight =========
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        updateFlight(event.getPlayer());
     }
 
-    private void startFlightManager() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    if (!canPlayerDoubleJump(player)) {
-                        player.setAllowFlight(false);
-                        continue;
-                    }
-                    if (player.isOnGround()) {
-                        if (hasDoubleJumped.contains(player.getUniqueId())) {
-                            hasDoubleJumped.remove(player.getUniqueId());
-                        }
-                        player.setAllowFlight(true);
-                    } else {
-                        if (hasDoubleJumped.contains(player.getUniqueId())) {
-                            player.setAllowFlight(false);
-                        } else {
-                            player.setAllowFlight(true);
-                        }
-                    }
-                }
-            }
-        }.runTaskTimer(this, 0L, 5L);
+    @EventHandler
+    public void onGameModeChange(PlayerGameModeChangeEvent event) {
+        // وقتی گیم‌مود عوض می‌شود دوباره وضعیت flight را بررسی کن
+        Bukkit.getScheduler().runTask(this, () -> updateFlight(event.getPlayer()));
     }
+
+    /**
+     * بر اساس وضعیت دابل‌جامپ بازیکن، allowFlight را تنظیم کن:
+     * اگر دابل‌جامپ برایش مجاز است = true
+     * در غیر این‌صورت = false (و در صورت flying بودن، پرواز را قطع کن)
+     */
+    private void updateFlight(Player player) {
+        if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) {
+            // کریتیو/اسپکتاتور نیازی ندارند
+            return;
+        }
+
+        boolean isDisabled = disabledPlayers.contains(player.getUniqueId());
+        boolean canDoubleJump = enabledByDefault ? !isDisabled : isDisabled;
+        boolean hasPerm = player.hasPermission("xmdoublejump.use");
+
+        if (canDoubleJump && hasPerm) {
+            player.setAllowFlight(true);
+        } else {
+            player.setAllowFlight(false);
+            // اگه در حال حاضر پرواز کرده بود (احتمالاً از جاهای دیگه) قطع کن
+            if (player.isFlying()) {
+                player.setFlying(false);
+            }
+        }
+    }
+
+    // ========= رویداد اصلی دابل‌جامپ =========
 
     @EventHandler
     public void onPlayerToggleFlight(PlayerToggleFlightEvent event) {
         Player player = event.getPlayer();
-        if (!canPlayerDoubleJump(player)) {
-            player.setAllowFlight(false);
-            return;
-        }
+        if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) return;
+        if (!player.hasPermission("xmdoublejump.use")) return;
 
-        if (player.isOnGround()) {
-            player.setAllowFlight(true);
-            return;
-        }
+        UUID uuid = player.getUniqueId();
+        boolean isDisabled = disabledPlayers.contains(uuid);
+        boolean canDoubleJump = enabledByDefault ? !isDisabled : isDisabled;
 
-        if (hasDoubleJumped.contains(player.getUniqueId())) {
-            event.setCancelled(true);
-            player.setAllowFlight(false);
-            return;
-        }
+        if (!canDoubleJump) return;
+
+        // فقط در صورتی که event به معنی "شروع پرواز" باشد (فقط در حالت flying = false)
+        if (!event.isFlying()) return; // ممکنه جایی دیگه فراخوانی بشه، مطمئن شویم که فقط موقع فشردن دکمه پرواز بیاد
+        // نکته: event.isFlying() وقتی true است که بازیکن خواسته پرواز را شروع کند
+        // اما حواست باشه وقتی ما cancel می‌کنیم و دوباره setAllowFlight(true) می‌کنیم، دفعه بعد هم true خواهد بود.
 
         event.setCancelled(true);
-        hasDoubleJumped.add(player.getUniqueId());
-        player.setAllowFlight(false);
+        player.setAllowFlight(true);   // برای دابل‌جامپ بعدی
 
+        // اعمال velocity
         player.setVelocity(new Vector(0, jumpPower, 0));
         player.setFallDistance(0f);
 
@@ -165,13 +168,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         }
     }
 
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        if (canPlayerDoubleJump(player)) {
-            player.setAllowFlight(true);
-        }
-    }
+    // ========= دستورات =========
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -248,6 +245,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
                         Collections.singletonMap("player", sender.getName())));
             }
         }
+        // بلافاصله وضعیت flight را به‌روز کن
+        updateFlight(target);
     }
 
     @Override
