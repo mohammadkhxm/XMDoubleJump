@@ -18,6 +18,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
     private File messagesFile;
     private boolean enabledByDefault;
     private double jumpPower;
+    private double forwardPower;                // جدید: قدرت پرتاب به جلو
     private boolean particlesEnabled;
     private Particle particleType;
     private int particleCount;
@@ -36,7 +37,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         disabledPlayers = new HashSet<>();
         getServer().getPluginManager().registerEvents(this, this);
 
-        // فعال‌سازی flight برای بازیکنان آنلاین دارای permission
         for (Player player : Bukkit.getOnlinePlayers()) {
             updateFlight(player);
         }
@@ -54,7 +54,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         reloadConfig();
         YamlConfiguration config = (YamlConfiguration) getConfig();
         enabledByDefault = config.getBoolean("settings.enabled-by-default", true);
-        jumpPower = config.getDouble("settings.jump-power", 0.6);  // پیشنهاد: 1.0 یا 1.2
+        jumpPower = config.getDouble("settings.jump-power", 0.6);
+        forwardPower = config.getDouble("settings.forward-power", 1.0);   // جدید: ۱.۰ پیش‌فرض
 
         particlesEnabled = config.getBoolean("particles.enabled", true);
         particleType = Particle.valueOf(config.getString("particles.type", "CLOUD").toUpperCase());
@@ -94,8 +95,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         return LegacyComponentSerializer.legacyAmpersand().deserialize(msg);
     }
 
-    // ========= رویدادهای مدیریت flight =========
-
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         updateFlight(event.getPlayer());
@@ -103,7 +102,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
-        // یک tick صبر کن تا گیم‌مود واقعاً تغییر کند
         Bukkit.getScheduler().runTask(this, () -> updateFlight(event.getPlayer()));
     }
 
@@ -126,8 +124,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         }
     }
 
-    // ========= رویداد اصلی دابل‌جامپ =========
-
     @EventHandler
     public void onPlayerToggleFlight(PlayerToggleFlightEvent event) {
         Player player = event.getPlayer();
@@ -139,14 +135,21 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         boolean canDoubleJump = enabledByDefault ? !isDisabled : isDisabled;
 
         if (!canDoubleJump) return;
-
-        // فقط زمانی که دکمه پرواز فشرده شده باشد (isFlying در اینجا true می‌شود)
         if (!event.isFlying()) return;
 
         event.setCancelled(true);
-        player.setAllowFlight(true);   // برای دابل‌جامپ بعدی
+        player.setAllowFlight(true);
 
-        player.setVelocity(new Vector(0, jumpPower, 0));
+        // محاسبه‌ی بردار جهت افقی (بر اساس زاویه دید، pitch نادیده گرفته می‌شود)
+        Vector direction = player.getLocation().getDirection().setY(0).normalize();
+        if (direction.lengthSquared() == 0) {
+            // در صورت نگاه مستقیم به بالا/پایین، بردار پیش‌فرض صفر
+            direction = new Vector(0, 0, 0);
+        }
+        Vector forwardVelocity = direction.multiply(forwardPower);
+
+        // اعمال velocity ترکیبی: پرش عمودی + پرتاب افقی
+        player.setVelocity(new Vector(forwardVelocity.getX(), jumpPower, forwardVelocity.getZ()));
         player.setFallDistance(0f);
 
         Location loc = player.getLocation();
@@ -159,8 +162,6 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
             world.playSound(loc, soundType, soundVolume, soundPitch);
         }
     }
-
-    // ========= دستورات =========
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
