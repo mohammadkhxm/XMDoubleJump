@@ -1,18 +1,19 @@
 settings:
-  jump-power: 0.6
+  jump-power: 2
+  forward-power: 1.0
   enabled-by-default: true
 
 particles:
   enabled: true
-  type: CLOUD
-  count: 15
+  type: crit
+  count: 20
   offset-x: 0.3
   offset-y: 0.2
   offset-z: 0.3
-  speed: 0.02
+  speed: 2
 
 sounds:
   enabled: true
-  type: ENTITY_BAT_TAKEOFF
-  volume: 0.6
-  pitch: 1.5
+  type: entity.player.attack.crit
+  volume: 5
+  pitch: 1.2
