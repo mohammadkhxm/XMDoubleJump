@@ -18,7 +18,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
     private File messagesFile;
     private boolean enabledByDefault;
     private double jumpPower;
-    private double forwardPower;                // جدید: قدرت پرتاب به جلو
+    private double forwardPower;
     private boolean particlesEnabled;
     private Particle particleType;
     private int particleCount;
@@ -27,7 +27,10 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
     private boolean soundsEnabled;
     private Sound soundType;
     private float soundVolume, soundPitch;
+    private int cooldownSeconds;               // جدید: time in seconds
     private Set<UUID> disabledPlayers;
+    private Set<UUID> usedDoubleJump;          // برای جلوگیری از پرش نامحدود
+    private Map<UUID, Long> cooldownMap;       // برای خنک‌سازی
 
     @Override
     public void onEnable() {
@@ -35,6 +38,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         reloadConfiguration();
         loadMessages();
         disabledPlayers = new HashSet<>();
+        usedDoubleJump = new HashSet<>();
+        cooldownMap = new HashMap<>();
         getServer().getPluginManager().registerEvents(this, this);
 
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -55,7 +60,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         YamlConfiguration config = (YamlConfiguration) getConfig();
         enabledByDefault = config.getBoolean("settings.enabled-by-default", true);
         jumpPower = config.getDouble("settings.jump-power", 0.6);
-        forwardPower = config.getDouble("settings.forward-power", 1.0);   // جدید: ۱.۰ پیش‌فرض
+        forwardPower = config.getDouble("settings.forward-power", 1.0);
+        cooldownSeconds = config.getInt("settings.cooldown-seconds", 0); // 0 = بدون کولدان
 
         particlesEnabled = config.getBoolean("particles.enabled", true);
         particleType = Particle.valueOf(config.getString("particles.type", "CLOUD").toUpperCase());
@@ -66,9 +72,23 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         particleSpeed = config.getDouble("particles.speed", 0.02);
 
         soundsEnabled = config.getBoolean("sounds.enabled", true);
-        soundType = Sound.valueOf(config.getString("sounds.type", "ENTITY_BAT_TAKEOFF").toUpperCase());
+        soundType = loadSound(config.getString("sounds.type", "ENTITY_BAT_TAKEOFF"));
         soundVolume = (float) config.getDouble("sounds.volume", 0.6);
         soundPitch = (float) config.getDouble("sounds.pitch", 1.5);
+    }
+
+    // متد جدید برای پشتیبانی از نام‌های custom مانند minecraft:entity.player.attack.crit
+    private Sound loadSound(String soundName) {
+        if (soundName == null || soundName.isEmpty()) return Sound.ENTITY_BAT_TAKEOFF;
+        try {
+            // اگر شامل : بود (مثل minecraft:something) قسمت بعد از : رو استخراج کن
+            String cleaned = soundName.contains(":") ? soundName.split(":")[1] : soundName;
+            cleaned = cleaned.toUpperCase().replace('.', '_');
+            return Sound.valueOf(cleaned);
+        } catch (IllegalArgumentException e) {
+            getLogger().warning("Invalid sound type: " + soundName + ". Using default ENTITY_BAT_TAKEOFF");
+            return Sound.ENTITY_BAT_TAKEOFF;
+        }
     }
 
     @Override
@@ -102,7 +122,17 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
-        Bukkit.getScheduler().runTask(this, () -> updateFlight(event.getPlayer()));
+        updateFlight(event.getPlayer()); // بدون نیاز به Scheduler
+    }
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+        // اگر بازیکن روی زمین است، اجازه پرش مجدد بده
+        if (player.isOnGround() && usedDoubleJump.contains(player.getUniqueId())) {
+            usedDoubleJump.remove(player.getUniqueId());
+            updateFlight(player);
+        }
     }
 
     private void updateFlight(Player player) {
@@ -114,7 +144,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         boolean canDoubleJump = enabledByDefault ? !isDisabled : isDisabled;
         boolean hasPerm = player.hasPermission("xmdoublejump.use");
 
-        if (canDoubleJump && hasPerm) {
+        // فقط اگر روی زمین است و قبلاً در هوا استفاده نکرده باشه، allowFlight بده
+        if (canDoubleJump && hasPerm && player.isOnGround() && !usedDoubleJump.contains(player.getUniqueId())) {
             player.setAllowFlight(true);
         } else {
             player.setAllowFlight(false);
@@ -137,28 +168,43 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         if (!canDoubleJump) return;
         if (!event.isFlying()) return;
 
-        event.setCancelled(true);
-        player.setAllowFlight(true);
+        // بررسی کولدان
+        if (cooldownSeconds > 0) {
+            long lastUse = cooldownMap.getOrDefault(uuid, 0L);
+            long now = System.currentTimeMillis();
+            if (now - lastUse < cooldownSeconds * 1000L) {
+                // هنوز در کولدان است
+                event.setCancelled(true);
+                player.setAllowFlight(true); // اجازه نده پرنده بشه
+                return;
+            }
+            cooldownMap.put(uuid, now);
+        }
 
-        // محاسبه‌ی بردار جهت افقی (بر اساس زاویه دید، pitch نادیده گرفته می‌شود)
+        // جلوگیری از پرش مجدد در هوا
+        if (usedDoubleJump.contains(uuid)) return;
+
+        event.setCancelled(true);
+        usedDoubleJump.add(uuid);
+        player.setAllowFlight(false); // مهم: جلوگیری از پرش دوباره در هوا
+
+        // اعمال velocity
         Vector direction = player.getLocation().getDirection().setY(0).normalize();
         if (direction.lengthSquared() == 0) {
-            // در صورت نگاه مستقیم به بالا/پایین، بردار پیش‌فرض صفر
             direction = new Vector(0, 0, 0);
         }
         Vector forwardVelocity = direction.multiply(forwardPower);
-
-        // اعمال velocity ترکیبی: پرش عمودی + پرتاب افقی
         player.setVelocity(new Vector(forwardVelocity.getX(), jumpPower, forwardVelocity.getZ()));
         player.setFallDistance(0f);
 
+        // افکت‌ها
         Location loc = player.getLocation();
         World world = player.getWorld();
         if (particlesEnabled) {
             world.spawnParticle(particleType, loc, particleCount,
                     particleOffsetX, particleOffsetY, particleOffsetZ, particleSpeed);
         }
-        if (soundsEnabled) {
+        if (soundsEnabled && soundType != null) {
             world.playSound(loc, soundType, soundVolume, soundPitch);
         }
     }
@@ -238,6 +284,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
                         Collections.singletonMap("player", sender.getName())));
             }
         }
+        // بعد از تغییر وضعیت، حتماً allowFlight رو بروز کن
+        usedDoubleJump.remove(uuid); // ریست وضعیت استفاده
         updateFlight(target);
     }
 
