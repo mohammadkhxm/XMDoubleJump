@@ -27,10 +27,10 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
     private boolean soundsEnabled;
     private Sound soundType;
     private float soundVolume, soundPitch;
-    private int cooldownSeconds;               // جدید: time in seconds
+    private int cooldownSeconds;
     private Set<UUID> disabledPlayers;
-    private Set<UUID> usedDoubleJump;          // برای جلوگیری از پرش نامحدود
-    private Map<UUID, Long> cooldownMap;       // برای خنک‌سازی
+    private Set<UUID> usedDoubleJump;
+    private Map<UUID, Long> cooldownMap;
 
     @Override
     public void onEnable() {
@@ -61,7 +61,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         enabledByDefault = config.getBoolean("settings.enabled-by-default", true);
         jumpPower = config.getDouble("settings.jump-power", 0.6);
         forwardPower = config.getDouble("settings.forward-power", 1.0);
-        cooldownSeconds = config.getInt("settings.cooldown-seconds", 0); // 0 = بدون کولدان
+        cooldownSeconds = config.getInt("settings.cooldown-seconds", 0);
 
         particlesEnabled = config.getBoolean("particles.enabled", true);
         particleType = Particle.valueOf(config.getString("particles.type", "CLOUD").toUpperCase());
@@ -77,11 +77,9 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         soundPitch = (float) config.getDouble("sounds.pitch", 1.5);
     }
 
-    // متد جدید برای پشتیبانی از نام‌های custom مانند minecraft:entity.player.attack.crit
     private Sound loadSound(String soundName) {
         if (soundName == null || soundName.isEmpty()) return Sound.ENTITY_BAT_TAKEOFF;
         try {
-            // اگر شامل : بود (مثل minecraft:something) قسمت بعد از : رو استخراج کن
             String cleaned = soundName.contains(":") ? soundName.split(":")[1] : soundName;
             cleaned = cleaned.toUpperCase().replace('.', '_');
             return Sound.valueOf(cleaned);
@@ -122,13 +120,12 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
-        updateFlight(event.getPlayer()); // بدون نیاز به Scheduler
+        updateFlight(event.getPlayer());
     }
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
-        // اگر بازیکن روی زمین است، اجازه پرش مجدد بده
         if (player.isOnGround() && usedDoubleJump.contains(player.getUniqueId())) {
             usedDoubleJump.remove(player.getUniqueId());
             updateFlight(player);
@@ -137,6 +134,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
 
     private void updateFlight(Player player) {
         if (player.getGameMode() != GameMode.SURVIVAL && player.getGameMode() != GameMode.ADVENTURE) {
+            player.setAllowFlight(false);
             return;
         }
 
@@ -144,8 +142,8 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         boolean canDoubleJump = enabledByDefault ? !isDisabled : isDisabled;
         boolean hasPerm = player.hasPermission("xmdoublejump.use");
 
-        // فقط اگر روی زمین است و قبلاً در هوا استفاده نکرده باشه، allowFlight بده
-        if (canDoubleJump && hasPerm && player.isOnGround() && !usedDoubleJump.contains(player.getUniqueId())) {
+        // شرط مهم: فقط اگر قبلاً در این نوبت از پرش دوگانه استفاده نکرده باشه، allowFlight بده
+        if (canDoubleJump && hasPerm && !usedDoubleJump.contains(player.getUniqueId())) {
             player.setAllowFlight(true);
         } else {
             player.setAllowFlight(false);
@@ -168,27 +166,25 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
         if (!canDoubleJump) return;
         if (!event.isFlying()) return;
 
-        // بررسی کولدان
+        // Cooldown check
         if (cooldownSeconds > 0) {
             long lastUse = cooldownMap.getOrDefault(uuid, 0L);
             long now = System.currentTimeMillis();
             if (now - lastUse < cooldownSeconds * 1000L) {
-                // هنوز در کولدان است
                 event.setCancelled(true);
-                player.setAllowFlight(true); // اجازه نده پرنده بشه
                 return;
             }
             cooldownMap.put(uuid, now);
         }
 
-        // جلوگیری از پرش مجدد در هوا
+        // جلوگیری از استفاده‌ی مجدد در هوا
         if (usedDoubleJump.contains(uuid)) return;
 
         event.setCancelled(true);
         usedDoubleJump.add(uuid);
-        player.setAllowFlight(false); // مهم: جلوگیری از پرش دوباره در هوا
+        player.setAllowFlight(false); // غیرفعال کردن پرواز تا موقع لندینگ
 
-        // اعمال velocity
+        // محاسبه velocity
         Vector direction = player.getLocation().getDirection().setY(0).normalize();
         if (direction.lengthSquared() == 0) {
             direction = new Vector(0, 0, 0);
@@ -284,8 +280,7 @@ public class XMDoubleJump extends JavaPlugin implements Listener {
                         Collections.singletonMap("player", sender.getName())));
             }
         }
-        // بعد از تغییر وضعیت، حتماً allowFlight رو بروز کن
-        usedDoubleJump.remove(uuid); // ریست وضعیت استفاده
+        usedDoubleJump.remove(uuid);
         updateFlight(target);
     }
 
