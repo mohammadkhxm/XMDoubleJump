@@ -2,7 +2,8 @@ settings:
   jump-power: 2
   forward-power: 1.0
   enabled-by-default: true
-
+  cooldown-seconds: 1
+  
 particles:
   enabled: true
   type: crit
@@ -14,6 +15,6 @@ particles:
 
 sounds:
   enabled: true
-  type: entity.player.attack.crit
+  type: "minecraft:entity.player.attack.crit"
   volume: 5
   pitch: 1.2
